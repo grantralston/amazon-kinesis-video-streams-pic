@@ -993,6 +993,15 @@ class ClientTestBase : public ::testing::Test {
         MUTEX_UNLOCK(mAtomicLock);
     };
 
+    UINT64 fastForward(UINT64 time) {
+        UINT64 currentTime = mClientCallbacks.getCurrentTimeFn((UINT64) this);
+        UINT64 streamStopTime = currentTime + time;
+        do {
+            currentTime = mClientCallbacks.getCurrentTimeFn((UINT64) this);
+        } while (currentTime < streamStopTime);
+        return currentTime;
+    };
+
   protected:
     // Stored function pointers to reset on exit
     memAlloc storedMemAlloc;

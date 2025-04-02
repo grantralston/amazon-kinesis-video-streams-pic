@@ -182,6 +182,47 @@ STATUS MockConsumer::timedGetStreamData(UINT64 currentTime, PBOOL pDidGetStreamD
     return retStatus;
 }
 
+STATUS MockConsumer::timedGetStreamDataCheckless(UINT64 currentTime, PBOOL pDidGetStreamData, PUINT32 pRetrievedSize)
+{
+    STATUS retStatus = STATUS_SUCCESS;
+    UINT32 actualDataSize;
+    *pDidGetStreamData = FALSE;
+
+    if (currentTime >= mNextGetStreamDataTime) {
+        *pDidGetStreamData = TRUE;
+        retStatus = getKinesisVideoStreamData(mStreamHandle, mUploadHandle, mDataBuffer, mDataBufferSize, &actualDataSize);
+
+        // stop calling getKinesisVideoStreamData if there is no more data.
+        if (retStatus == STATUS_NO_MORE_DATA_AVAILABLE || retStatus == STATUS_AWAITING_PERSISTED_ACK) {
+            ATOMIC_STORE_BOOL(&mDataAvailable, FALSE);
+        }
+
+        if (actualDataSize > 0) {
+            mLastGetStreamDataTime = currentTime;
+        }
+
+        if (pRetrievedSize != NULL) {
+            *pRetrievedSize = actualDataSize;
+        }
+
+        mSendDataDelay = (UINT64) ((DOUBLE) actualDataSize / mUploadSpeed * HUNDREDS_OF_NANOS_IN_A_SECOND);
+        DLOGD("wrote %llu bytes for upload handle %llu", actualDataSize, mUploadHandle);
+        if (retStatus != STATUS_UPLOAD_HANDLE_ABORTED && actualDataSize != 0) {
+            // initialize mOldCurrent after first getKinesisVideoStreamData call.
+            // ActualDataSize has to be non zero so that at least one frame has been consumed, in which case
+            // a view item with ITEM_FLAG_STREAM_START_DEBUG must exist. Also when retStatus is STATUS_UPLOAD_HANDLE_ABORTED,
+            // actualDataSize should also be zero.
+            if (!mCurrentInitialized) {
+                initOldCurrent();
+            }
+        }
+
+        mNextGetStreamDataTime = currentTime + mSendDataDelay;
+    }
+
+    return retStatus;
+}
+
 STATUS MockConsumer::timedSubmitNormalAck(UINT64 currentTime, PBOOL pSubmittedAck)
 {
     STATUS retStatus = STATUS_SUCCESS;

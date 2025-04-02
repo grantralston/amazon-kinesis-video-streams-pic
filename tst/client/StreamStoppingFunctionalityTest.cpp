@@ -245,6 +245,69 @@ TEST_P(StreamStoppingFunctionalityTest, CreateSyncStreamStopSyncErrorAckWhileStr
     EXPECT_EQ(0, ATOMIC_LOAD(&mDroppedFrameReportFuncCount));
 }
 
+TEST_P(StreamStoppingFunctionalityTest, CreateSyncStreamWithoutAcksStopSyncFree)
+{
+    std::vector<UPLOAD_HANDLE> currentUploadHandles;
+    MockConsumer* mockConsumer;
+    BOOL didPutFrame, gotStreamData, submittedAck, submittedErrorAck = FALSE;
+    UINT64 currentTime, streamStopTime;
+
+    if ((mStreamInfo.retention == 0 || !mStreamInfo.streamCaps.fragmentAcks)) {
+        return;
+    }
+
+    mDeviceInfo.clientInfo.stopStreamTimeout = 5 * HUNDREDS_OF_NANOS_IN_A_SECOND;
+    CreateScenarioTestClient();
+
+    CreateStreamSync();
+    MockProducer mockProducer(mMockProducerConfig, mStreamHandle);
+
+    streamStopTime =
+        mClientCallbacks.getCurrentTimeFn((UINT64) this) + 5 * HUNDREDS_OF_NANOS_IN_A_SECOND;
+    do {
+        currentTime = mClientCallbacks.getCurrentTimeFn((UINT64) this);
+        EXPECT_EQ(STATUS_SUCCESS, mockProducer.timedPutFrame(currentTime, &didPutFrame));
+    } while (currentTime < streamStopTime);
+
+    mStreamingSession.getActiveUploadHandles(currentUploadHandles);
+    UPLOAD_HANDLE uploadHandle = currentUploadHandles[currentUploadHandles.size() - 1];
+    currentTime = mClientCallbacks.getCurrentTimeFn((UINT64) this);
+    mockConsumer = mStreamingSession.getConsumer(uploadHandle);
+
+    // Iterate to consume the buffers
+    bool iterate = TRUE;
+    UINT64 iterations = 0;
+    while (iterate) {
+        currentTime = fastForward(10 * HUNDREDS_OF_NANOS_IN_A_MILLISECOND);
+        STATUS status = mockConsumer->timedGetStreamDataCheckless(currentTime, &gotStreamData);
+        EXPECT_TRUE(status == STATUS_SUCCESS || status == STATUS_END_OF_STREAM || status == STATUS_NO_MORE_DATA_AVAILABLE);
+        switch (status) {
+            case STATUS_SUCCESS:
+                break;
+            case STATUS_END_OF_STREAM:
+                break;
+            case STATUS_NO_MORE_DATA_AVAILABLE:
+                iterate = FALSE;
+                break;
+            default:
+                break;
+        }
+        iterations += 1;
+        if (iterations >= 1000) {
+            // Default exit case
+            iterate = FALSE;
+        }
+    }
+
+    EXPECT_EQ(STATUS_OPERATION_TIMED_OUT, stopKinesisVideoStreamSync(mStreamHandle));
+
+    currentTime = fastForward(1 * HUNDREDS_OF_NANOS_IN_A_SECOND);
+    mockConsumer->timedGetStreamDataCheckless(currentTime, &gotStreamData);
+
+    // 
+    EXPECT_EQ(TRUE, ATOMIC_LOAD_BOOL(&mStreamClosed));
+    EXPECT_EQ(STATUS_SUCCESS, freeKinesisVideoStream(&mStreamHandle));
+}
 #endif
 
 INSTANTIATE_TEST_SUITE_P(PermutatedStreamInfo, StreamStoppingFunctionalityTest,

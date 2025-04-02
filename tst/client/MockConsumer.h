@@ -114,6 +114,17 @@ class MockConsumer {
     STATUS timedGetStreamData(UINT64 currentTime, PBOOL pDidGetStreamData, PUINT32 pRetrievedSize = NULL);
 
     /**
+     * time based getKinesisVideoStreamData without check on new data
+     *
+     * @param 1 UINT64 - Current time.
+     * @param 2 PBOOL - Whether getKinesisVideoStreamData was called.
+     * @param 3 PUINT32 - If getKinesisVideoStreamData was called, retrievedSize will be set to the retrieved size.
+     *
+     * @return STATUS code of getKinesisVideoStreamData if it happened, otherwise STATUS_SUCCESS
+     */
+    STATUS timedGetStreamDataCheckless(UINT64 currentTime, PBOOL pDidGetStreamData, PUINT32 pRetrievedSize = NULL);
+
+    /**
      * time based calling kinesisVideoStreamFragmentAck
      *
      * @param 1 UINT64 - Current time.

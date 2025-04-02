@@ -570,6 +570,8 @@ STATUS stopStreamSync(PKinesisVideoStream pKinesisVideoStream)
     ENTERS();
     STATUS retStatus = STATUS_SUCCESS;
     PKinesisVideoClient pKinesisVideoClient = NULL;
+    PUploadHandleInfo pUploadHandleInfo;
+    UINT64 duration, viewByteSize;
     BOOL streamLocked = FALSE;
 
     CHK_STATUS(stopStream(pKinesisVideoStream));
@@ -607,8 +609,19 @@ STATUS stopStreamSync(PKinesisVideoStream pKinesisVideoStream)
 
 CleanUp:
 
+    // Stream stop timed out... This can happen as the uploadHandle is awaiting a condition such as fragment ACK that
+    // may never materialize. If this times out, we need to exit the uploadHandle loop to release resources.
     if (retStatus == STATUS_OPERATION_TIMED_OUT) {
-        DLOGE("[%s] Failed to stop Kinesis Video Stream - timed out.", pKinesisVideoStream->streamInfo.name);
+        pUploadHandleInfo = getStreamUploadInfoWithState(pKinesisVideoStream, UPLOAD_HANDLE_STATE_ACTIVE);
+        if (NULL != pUploadHandleInfo && IS_VALID_UPLOAD_HANDLE(pUploadHandleInfo->handle)) {
+            DLOGW("[%s] Exiting uploadHandle %" PRIu64 " without awaiting persisted ACK", pKinesisVideoStream->streamInfo.name, pUploadHandleInfo->handle);
+            // There is an active upload handle streaming we need to terminate
+            pUploadHandleInfo->state = UPLOAD_HANDLE_STATE_TERMINATED;
+            CHK_STATUS(getAvailableViewSize(pKinesisVideoStream, &duration, &viewByteSize));
+            CHK_STATUS(pKinesisVideoClient->clientCallbacks.streamDataAvailableFn(
+                pKinesisVideoClient->clientCallbacks.customData, TO_STREAM_HANDLE(pKinesisVideoStream), pKinesisVideoStream->streamInfo.name,
+                pUploadHandleInfo->handle, duration, viewByteSize));
+        }
     }
 
     // release stream lock
